@@ -1,0 +1,20 @@
+[package]
+name = "conway_screensaver"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+winit = "0.30"
+wgpu = "27"
+pollster = "0.4"
+rayon = "1.10"
+rand = "0.9"
+sysinfo = "0.37"
+bytemuck = { version = "1.16", features = ["derive"] }
+
+# Windows-only virtual screen metrics + monitor enumeration
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Graphics_Gdi"
+] }

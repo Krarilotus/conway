@@ -1,0 +1,39 @@
+@group(0) @binding(0) var t: texture_2d<f32>;
+@group(0) @binding(1) var s: sampler;
+
+struct VSOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
+
+@vertex
+fn vs_main(@builtin(vertex_index) vi: u32) -> VSOut {
+  // draw a small quad in top-right via triangle; easiest: still full-screen tri but remap UV,
+  // and discard outside HUD rectangle.
+  var p = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -1.0),
+    vec2<f32>( 3.0, -1.0),
+    vec2<f32>(-1.0,  3.0)
+  );
+  var uv = array<vec2<f32>, 3>(
+    vec2<f32>(0.0, 0.0),
+    vec2<f32>(2.0, 0.0),
+    vec2<f32>(0.0, 2.0)
+  );
+  var o: VSOut;
+  o.pos = vec4<f32>(p[vi], 0.0, 1.0);
+  o.uv = uv[vi];
+  return o;
+}
+
+@fragment
+fn fs_main(i: VSOut) -> @location(0) vec4<f32> {
+  // HUD rect in normalized coords (top-right)
+  let uv = i.uv;
+  // map uv (0..1-ish) to screen space; approximate:
+  // show only if within top-right region
+  if (uv.x < 0.70 || uv.y > 0.30) {
+    return vec4<f32>(0.0);
+  }
+  // remap to debug texture UV
+  let duv = vec2<f32>((uv.x - 0.70) / 0.30, uv.y / 0.30);
+  let c = textureSample(t, s, duv);
+  return c;
+}

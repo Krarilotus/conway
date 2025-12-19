@@ -1,0 +1,6 @@
+numpy
+pyinstaller
+scipy
+pygame>=2.1
+psutil
+pynvml
