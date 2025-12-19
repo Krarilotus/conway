@@ -1,2 +1,12 @@
 /target
 /dist
+/build
+__pycache__/
+*.spec
+*.pyc
+.env
+venv/
+.env/
+.idea/
+.vscode/
+.venv/

@@ -1101,9 +1101,10 @@ impl AutoCursor {
         let f = panel.cursors.stamp_60hz.fill_fraction;
         let l = panel.cursors.stamp_60hz.layer_multiplier;
 
-        let mut brush = Transition::new(b.initial, b.range.min, b.range.max, b.retarget.min, b.retarget.max);
-        let mut fill  = Transition::new(f.initial, f.range.min, f.range.max, f.retarget.min, f.retarget.max);
-        let mut layer = Transition::new(l.initial, l.range.min, l.range.max, l.retarget.min, l.retarget.max);
+        // Use make_transition() helper
+        let mut brush = b.make_transition();
+        let mut fill  = f.make_transition();
+        let mut layer = l.make_transition();
 
         // Desync “next change time” per cursor without changing value yet.
         brush.set_target(0.0, brush.cur, b.retarget.pick(rng));
@@ -1164,34 +1165,22 @@ impl AutoPilot {
         let panel = crate::tuning::ControlPanel::for_sim(w, h);
         let mut rng = StdRng::seed_from_u64(panel.rng_seed);
 
-        // Build all animated transitions from the panel.
-        let s = panel.sim_steps_per_second;
-        let speed_ips = Transition::new(s.initial, s.range.min, s.range.max, s.retarget.min, s.retarget.max);
+        // Build all animated transitions using helpers
+        let speed_ips = panel.sim_steps_per_second.make_transition();
 
-        let br = panel.blobs.blobs_per_second;
-        let blob_rate = Transition::new(br.initial, br.range.min, br.range.max, br.retarget.min, br.retarget.max);
+        let blob_rate = panel.blobs.blobs_per_second.make_transition();
+        let blob_radius = panel.blobs.blob_radius_px.make_transition();
+        let blob_density = panel.blobs.blob_cell_probability.make_transition();
 
-        let rr = panel.blobs.blob_radius_px;
-        let blob_radius = Transition::new(rr.initial, rr.range.min, rr.range.max, rr.retarget.min, rr.retarget.max);
+        let step_cursor_rate = panel.step_cursor.stamps_per_second.make_transition();
+        let step_cursor_brush = panel.step_cursor.brush_radius_px.make_transition();
+        let step_cursor_density = panel.step_cursor.stamp_cell_probability.make_transition();
 
-        let bd = panel.blobs.blob_cell_probability;
-        let blob_density = Transition::new(bd.initial, bd.range.min, bd.range.max, bd.retarget.min, bd.retarget.max);
-
-        let cr = panel.step_cursor.stamps_per_second;
-        let step_cursor_rate = Transition::new(cr.initial, cr.range.min, cr.range.max, cr.retarget.min, cr.retarget.max);
-
-        let cb = panel.step_cursor.brush_radius_px;
-        let step_cursor_brush = Transition::new(cb.initial, cb.range.min, cb.range.max, cb.retarget.min, cb.retarget.max);
-
-        let cd = panel.step_cursor.stamp_cell_probability;
-        let step_cursor_density = Transition::new(cd.initial, cd.range.min, cd.range.max, cd.retarget.min, cd.retarget.max);
-
-        let ltl = panel.ltl;
-        let ltl_r = Transition::new(ltl.radius_r.initial, ltl.radius_r.range.min, ltl.radius_r.range.max, ltl.radius_r.retarget.min, ltl.radius_r.retarget.max);
-        let ltl_birth_lo = Transition::new(ltl.birth_lo.initial, ltl.birth_lo.range.min, ltl.birth_lo.range.max, ltl.birth_lo.retarget.min, ltl.birth_lo.retarget.max);
-        let ltl_birth_hi = Transition::new(ltl.birth_hi.initial, ltl.birth_hi.range.min, ltl.birth_hi.range.max, ltl.birth_hi.retarget.min, ltl.birth_hi.retarget.max);
-        let ltl_surv_lo  = Transition::new(ltl.survive_lo.initial, ltl.survive_lo.range.min, ltl.survive_lo.range.max, ltl.survive_lo.retarget.min, ltl.survive_lo.retarget.max);
-        let ltl_surv_hi  = Transition::new(ltl.survive_hi.initial, ltl.survive_hi.range.min, ltl.survive_hi.range.max, ltl.survive_hi.retarget.min, ltl.survive_hi.retarget.max);
+        let ltl_r = panel.ltl.radius_r.make_transition();
+        let ltl_birth_lo = panel.ltl.birth_lo.make_transition();
+        let ltl_birth_hi = panel.ltl.birth_hi.make_transition();
+        let ltl_surv_lo  = panel.ltl.survive_lo.make_transition();
+        let ltl_surv_hi  = panel.ltl.survive_hi.make_transition();
 
         // Palette transitions from the panel
         let mut pal0 = [
@@ -1202,7 +1191,7 @@ impl AutoPilot {
             panel.palette.accent.make_transition(),
         ];
 
-        // At startup, optionally randomize accent targets immediately so the first seconds aren't identical.
+        // At startup, optionally randomize accent targets immediately
         if panel.reset_policy.randomize_palette_on_reset {
             let acc = panel.palette.accent;
             for k in 1..=4 {
@@ -1228,26 +1217,20 @@ impl AutoPilot {
         Self {
             rng,
             panel,
-
             speed_ips,
-
             blob_rate,
             blob_radius,
             blob_density,
-
             step_cursor_rate,
             step_cursor_brush,
             step_cursor_density,
-
             ltl_r,
             ltl_birth_lo,
             ltl_birth_hi,
             ltl_surv_lo,
             ltl_surv_hi,
-
             pal0,
-
-            reset_at: 0.0 + 60.0, // overwritten by reset() anyway
+            reset_at: 0.0 + 60.0,
             num_cursors: nc,
             cursors,
         }
@@ -1304,56 +1287,24 @@ impl AutoPilot {
 
     /// Called once per frame: updates all retargeting knobs + palette, and applies LTL params into the sim.
     fn tick_frame(&mut self, now: f32, sim: &mut Sim) -> (f32, [[u8; 3]; 5]) {
-        // --- retarget global knobs ---
-        let s = self.panel.sim_steps_per_second;
-        if s.enabled {
-            self.speed_ips.maybe_new_target(now, &mut self.rng, |r| s.range.pick(r));
-        }
+        // --- retarget global knobs using maybe_retarget() helper ---
+        self.panel.sim_steps_per_second.maybe_retarget(&mut self.speed_ips, now, &mut self.rng);
+        
+        self.panel.blobs.blobs_per_second.maybe_retarget(&mut self.blob_rate, now, &mut self.rng);
+        self.panel.blobs.blob_radius_px.maybe_retarget(&mut self.blob_radius, now, &mut self.rng);
+        self.panel.blobs.blob_cell_probability.maybe_retarget(&mut self.blob_density, now, &mut self.rng);
 
-        let br = self.panel.blobs.blobs_per_second;
-        if br.enabled {
-            self.blob_rate.maybe_new_target(now, &mut self.rng, |r| br.range.pick(r));
-        }
-        let rr = self.panel.blobs.blob_radius_px;
-        if rr.enabled {
-            self.blob_radius.maybe_new_target(now, &mut self.rng, |r| rr.range.pick(r));
-        }
-        let bd = self.panel.blobs.blob_cell_probability;
-        if bd.enabled {
-            self.blob_density.maybe_new_target(now, &mut self.rng, |r| bd.range.pick(r));
-        }
-
-        let cr = self.panel.step_cursor.stamps_per_second;
-        if cr.enabled {
-            self.step_cursor_rate.maybe_new_target(now, &mut self.rng, |r| cr.range.pick(r));
-        }
-        let cb = self.panel.step_cursor.brush_radius_px;
-        if cb.enabled {
-            self.step_cursor_brush.maybe_new_target(now, &mut self.rng, |r| cb.range.pick(r));
-        }
-        let cd = self.panel.step_cursor.stamp_cell_probability;
-        if cd.enabled {
-            self.step_cursor_density.maybe_new_target(now, &mut self.rng, |r| cd.range.pick(r));
-        }
+        self.panel.step_cursor.stamps_per_second.maybe_retarget(&mut self.step_cursor_rate, now, &mut self.rng);
+        self.panel.step_cursor.brush_radius_px.maybe_retarget(&mut self.step_cursor_brush, now, &mut self.rng);
+        self.panel.step_cursor.stamp_cell_probability.maybe_retarget(&mut self.step_cursor_density, now, &mut self.rng);
 
         // LTL params drift
         let ltl = self.panel.ltl;
-
-        if ltl.radius_r.enabled {
-            self.ltl_r.maybe_new_target(now, &mut self.rng, |r| ltl.radius_r.range.pick(r));
-        }
-        if ltl.birth_lo.enabled {
-            self.ltl_birth_lo.maybe_new_target(now, &mut self.rng, |r| ltl.birth_lo.range.pick(r));
-        }
-        if ltl.birth_hi.enabled {
-            self.ltl_birth_hi.maybe_new_target(now, &mut self.rng, |r| ltl.birth_hi.range.pick(r));
-        }
-        if ltl.survive_lo.enabled {
-            self.ltl_surv_lo.maybe_new_target(now, &mut self.rng, |r| ltl.survive_lo.range.pick(r));
-        }
-        if ltl.survive_hi.enabled {
-            self.ltl_surv_hi.maybe_new_target(now, &mut self.rng, |r| ltl.survive_hi.range.pick(r));
-        }
+        ltl.radius_r.maybe_retarget(&mut self.ltl_r, now, &mut self.rng);
+        ltl.birth_lo.maybe_retarget(&mut self.ltl_birth_lo, now, &mut self.rng);
+        ltl.birth_hi.maybe_retarget(&mut self.ltl_birth_hi, now, &mut self.rng);
+        ltl.survive_lo.maybe_retarget(&mut self.ltl_surv_lo, now, &mut self.rng);
+        ltl.survive_hi.maybe_retarget(&mut self.ltl_surv_hi, now, &mut self.rng);
 
         // Palette drift (independent knobs)
         let bg = self.panel.palette.background;
